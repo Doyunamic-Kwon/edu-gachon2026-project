@@ -1,0 +1,32 @@
+name: "제출물 피드백"
+description: "운영자/코치가 팀 제출물에 대한 피드백을 남깁니다."
+title: "[제출물 피드백] Team NN"
+labels: ["피드백"]
+body:
+  - type: input
+    id: team
+    attributes:
+      label: "팀"
+      description: "피드백 대상 팀을 입력하세요."
+      placeholder: "예: team01-newscatcher"
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: "총평"
+      description: "프로젝트에 대한 전반적인 평가를 작성해주세요."
+    validations:
+      required: true
+  - type: textarea
+    id: strengths
+    attributes:
+      label: "잘한 점"
+    validations:
+      required: false
+  - type: textarea
+    id: improvements
+    attributes:
+      label: "개선할 점"
+    validations:
+      required: false
