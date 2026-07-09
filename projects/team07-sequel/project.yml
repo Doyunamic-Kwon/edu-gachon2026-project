@@ -1,0 +1,63 @@
+schema_version: 1
+
+team:
+  number: 7
+  folder_name: team07-sequel
+  name: sequel
+  members:
+    - name: 홍길동
+      role: Backend, AI
+      github: github-id
+    - name: 김철수
+      role: Frontend
+      github: github-id
+
+project:
+  title: 프로젝트 이름
+  summary: 프로젝트를 한 문장으로 설명해주세요.
+  category: AI 서비스
+  keywords:
+    - AI
+    - RAG
+    - Agent
+
+problem:
+  summary: 해결하려는 문제를 한 문장으로 설명해주세요.
+  target_users:
+    - 주요 사용자 1
+    - 주요 사용자 2
+
+solution:
+  summary: 문제를 어떻게 해결했는지 한 문장으로 설명해주세요.
+  main_features:
+    - 핵심 기능 1
+    - 핵심 기능 2
+    - 핵심 기능 3
+
+tech_stack:
+  frontend:
+    - Streamlit
+  backend:
+    - FastAPI
+  ai:
+    - Upstage Solar (solar-pro2)
+    - LangGraph
+    - LangChain
+  database:
+    - ChromaDB
+  infra:
+    - Docker
+    - uv
+
+links:
+  demo_video_url:
+  deployed_url:
+  presentation_url:
+  repository_url:
+
+blog:
+  slug: team07-sequel
+  tags:
+    - AI
+    - RAG
+  cover_image: assets/cover.png
