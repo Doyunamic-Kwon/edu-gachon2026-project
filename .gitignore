@@ -10,3 +10,4 @@ __pycache__/
 .omc/
 project_code*.zip
 148.자연어 기반 질의(NL2SQL) 검색 생성 데이터/
+*.timestamp-*.mjs
