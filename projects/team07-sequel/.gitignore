@@ -5,3 +5,6 @@ __pycache__/
 chroma_data/
 dist/
 build/
+
+# 기획서 등 저작권 표기 문서는 로컬 보관 (공개 repo 미커밋)
+docs/*.pdf
