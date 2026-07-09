@@ -7,8 +7,10 @@ class Settings:
     SUPABASE_DB_URL: str = os.environ.get("SUPABASE_DB_URL", "")
     PORT: int = int(os.environ.get("PORT", "8080"))
 
-    # AI agent가 별도 서비스로 분리될 때 사용할 주소 (아직 미정 — 정해지면 채우기)
-    AI_AGENT_BASE_URL: str = os.environ.get("AI_AGENT_BASE_URL", "")
+    # AI agent(teammate의 aiagent 브랜치, docs/api.md 기준) 서비스 주소.
+    # 로컬에서 agent를 직접 띄웠을 때의 기본 포트로 맞춰둠. 배포 시에는
+    # 실제 Cloud Run URL로 교체.
+    AI_AGENT_BASE_URL: str = os.environ.get("AI_AGENT_BASE_URL", "http://localhost:8000")
 
 
 settings = Settings()
