@@ -1,45 +1,48 @@
 """백엔드 <-> AI agent 연동 지점.
 
-현재 결정된 것: AI agent는 별도 서비스로 분리해서 HTTP로 호출할 예정이지만,
-요청/응답 스펙, 에러 처리 규약, 세션·트레이싱 ID 공유 방식은 아직 팀원과
-미정 상태다. (한 번 실제 스펙으로 보이는 문서를 보고 연동했었으나, 그건
-강사 측이 제공한 벤치마킹용 가이드 코드였고 teammate의 실제 스펙은 아직
-확정되지 않았음이 확인되어 mock으로 되돌림 — 2026-07-09)
+2026-07-10 업데이트: 팀원의 aiagent 브랜치가 main에 병합되고, 실제 Cloud Run
+서비스(text2sql-agent)로 배포된 것을 확인해서 mock을 실제 HTTP 호출로 교체했다.
+(이전에 한 번 "실제 스펙"으로 보고 연동했다가, 그게 강사 측 벤치마킹용 예시
+코드였음이 드러나 mock으로 롤백한 적이 있다 — 이번엔 실제 코드(app/main.py,
+app/api/routes.py, app/schemas/query.py)를 직접 확인하고 진행한 것이라 다르다.)
 
-그 사이 프론트엔드/백엔드 통합 개발이 막히지 않도록, 이 함수 하나로
-AI agent 호출 지점을 감싸두고 지금은 목업(mock) 응답을 반환한다.
-나중에 실제 스펙이 확정되면 이 함수 내부만 실제 HTTP 호출로 교체하면
-되고, main.py/query.py 등 나머지 코드는 손댈 필요가 없다.
+실제 agent 응답에는 summary/columns/rows/sql/difficulty/model/error가 들어있지만,
+우리는 sql과 summary만 쓴다. agent가 이미 실행한 columns/rows는 신뢰하지 않고
+버린다 — 백엔드가 자체 guardrail로 재검증하고 자체 읽기 전용 DB 커넥션으로
+다시 실행하는 defense-in-depth 설계를 그대로 유지하기 위함이다 (query.py 참고).
+
+agent_client.py 하나만 교체하면 되도록 설계해뒀던 대로, main.py/query.py 등
+나머지 코드는 이번에도 손대지 않았다.
 """
+
+import httpx
 
 from app.core.config import settings
 from app.schemas.query import AgentResult
 
-# 실제 연동 시 사용할 예시 (미정 스펙이 확정되면 주석 해제 후 구현)
-# import httpx
-#
-# async def ask_ai_agent(question: str, history: list[dict]) -> AgentResult:
-#     async with httpx.AsyncClient(base_url=settings.AI_AGENT_BASE_URL, timeout=30) as client:
-#         resp = await client.post("/agent/query", json={"question": question, "history": history})
-#         resp.raise_for_status()
-#         data = resp.json()
-#         return AgentResult(sql=data["sql"], summary=data["summary"])
+
+class AgentError(Exception):
+    """AI agent가 자체적으로 처리 실패를 알려온 경우 (응답의 error 필드가 채워짐)."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
 
 
 async def ask_ai_agent(question: str, history: list[dict]) -> AgentResult:
-    """TODO: AI agent 실제 HTTP 호출로 교체 예정. 지금은 통합 테스트용 목업 응답."""
+    """AI agent(Cloud Run)에 실제 HTTP로 SQL 생성을 요청한다.
 
-    return AgentResult(
-        sql=(
-            "SELECT p.product_category_name, COUNT(*) AS order_count "
-            "FROM olist_order_items oi "
-            "JOIN olist_products p ON oi.product_id = p.product_id "
-            "GROUP BY p.product_category_name "
-            "ORDER BY order_count DESC "
-            "LIMIT 10;"
-        ),
-        summary=(
-            "(임시 목업 응답) 이 문장은 AI agent 연동 전까지 고정으로 반환됩니다. "
-            f"질문: '{question}' / 세션에 쌓인 이전 대화: {len(history)}건"
-        ),
-    )
+    주의: 지금 agent의 /api/v1/query는 question만 받고 세션/히스토리 개념이
+    없다. 그래서 history는 아직 agent에 전달하지 못하고 있다 (우리 쪽
+    session_store에는 계속 쌓이지만, agent의 SQL 생성에는 아직 반영 안 됨).
+    agent가 세션 파라미터를 지원하게 되면 이 함수만 다시 고치면 된다.
+    """
+    async with httpx.AsyncClient(base_url=settings.AI_AGENT_BASE_URL, timeout=60) as client:
+        resp = await client.post("/api/v1/query", json={"question": question})
+        resp.raise_for_status()
+        data = resp.json()
+
+    if data.get("error"):
+        raise AgentError(data["error"])
+
+    return AgentResult(sql=data.get("sql", ""), summary=data.get("summary", ""))
