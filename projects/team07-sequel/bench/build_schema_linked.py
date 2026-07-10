@@ -45,13 +45,42 @@ def _value_block(db_path) -> str:
     return "\n".join(lines)
 
 
+def _join_hints(db_path) -> str:
+    """FK 선언 + 공유 id 컬럼 추론으로 조인 경로(다중 테이블일 때만)."""
+    con = sqlite3.connect(db_path)
+    joins: set[str] = set()
+    try:
+        tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        if len(tables) < 2:
+            return ""
+        cols = {t: [c[1] for c in con.execute(f'PRAGMA table_info("{t}")')] for t in tables}
+        for t in tables:  # 선언된 FK
+            for fk in con.execute(f'PRAGMA foreign_key_list("{t}")'):
+                joins.add(f"{t}.{fk[3]} = {fk[2]}.{fk[4]}")
+        seen = sorted(tables)  # 공유 id 컬럼 추론
+        for i, a in enumerate(seen):
+            for b in seen[i + 1:]:
+                for c in set(cols[a]) & set(cols[b]):
+                    if c.lower().endswith("id") or c.lower().endswith("code"):
+                        joins.add(f"{a}.{c} = {b}.{c}")
+    finally:
+        con.close()
+    return "\n".join(sorted(joins))
+
+
 def _enrich(records: list[dict]) -> list[dict]:
-    cache: dict[str, str] = {}
+    vcache: dict[str, str] = {}
+    jcache: dict[str, str] = {}
     out = []
     for r in records:
-        if r["db_id"] not in cache:
-            cache[r["db_id"]] = _value_block(config.DB_DIR / f"{r['db_id']}.sqlite")
-        schema = f"{r['schema']}\n\n# Column sample values\n{cache[r['db_id']]}"
+        db = r["db_id"]
+        path = config.DB_DIR / f"{db}.sqlite"
+        if db not in vcache:
+            vcache[db] = _value_block(path)
+            jcache[db] = _join_hints(path)
+        schema = f"{r['schema']}\n\n# Column sample values\n{vcache[db]}"
+        if jcache[db]:
+            schema += f"\n\n# 조인(FK)\n{jcache[db]}"
         out.append({**r, "schema": schema})
     return out
 
