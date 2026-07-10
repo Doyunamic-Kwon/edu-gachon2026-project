@@ -22,9 +22,15 @@ def schema_link(state: AgentState) -> dict:
     parts = [schema_res.ddl]
     if schema_res.joins:
         parts.append("# 조인 경로\n" + "\n".join(schema_res.joins))
-    if value_res.hints:
-        parts.append("# 값 매칭\n" + "\n".join(
-            f"{h.keyword} → {h.column} = {h.value} ({h.how})" for h in value_res.hints))
+    # 확정 힌트만 '=' 로 단정. ambiguous 는 후보로만 노출(생성기가 임의 확정 못 하게).
+    confident = [h for h in value_res.hints if h.how != "ambiguous"]
+    unsure = [h for h in value_res.hints if h.how == "ambiguous"]
+    if confident:
+        parts.append("# 값 매칭 (확정)\n" + "\n".join(
+            f"{h.keyword} → {h.column} = {h.value} ({h.how})" for h in confident))
+    if unsure:
+        parts.append("# 값 후보 (불확실 — 단정하지 말 것)\n" + "\n".join(
+            f"{h.keyword} → {h.column} ≈ {h.value} / " + " / ".join(h.candidates) for h in unsure))
     time_range = state.get("time_range") or {}
     if time_range:
         parts.append(f"# 기간\n{time_range.get('start')} ~ {time_range.get('end')}")
