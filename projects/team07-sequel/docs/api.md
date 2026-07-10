@@ -6,9 +6,10 @@
 - **공통 prefix**: `/api/v1`
 - **Content-Type**: `application/json` (요청), `application/json` 또는 `text/event-stream`(스트리밍)
 
-> 상태: 현재는 **골격(skeleton)** — 파이프라인(schema_link → route → generate → validate → execute → format)은
-> 배선 완료지만, 각 노드의 실제 로직(도구·LiteLLM·Langfuse)은 후속 단계에서 채워진다.
-> 따라서 아래 "응답 예시"는 **완성 시 목표 형태**이며, 현재 스켈레톤은 placeholder(`sql: "SELECT 1"`, 빈 표)를 반환한다.
+> 상태: 노드·도구 구현됨 — 스키마 검색/값샘플/검증(sqlglot)/실행은 **실제 Supabase(읽기전용)** 로 동작하며
+> 표의 결과는 라이브 데이터다. 다만 **SQL 생성·난이도 분류·요약은 아직 fake LLM**(LiteLLM 미연결)이라
+> 생성 SQL·요약 문구는 고정 mock 이다. LiteLLM 연결 단계에서 실제 생성으로 바뀐다.
+> (아래 예시는 실제 Olist 데이터 기준 형태.)
 
 ---
 
@@ -49,7 +50,7 @@ curl http://localhost:8000/health
 ```bash
 curl -X POST http://localhost:8000/api/v1/query \
   -H "Content-Type: application/json" \
-  -d '{"question": "지난달 가장 많이 팔린 상품은?"}'
+  -d '{"question": "가장 많이 팔린 상품 카테고리는?"}'
 ```
 
 ### 응답 (QueryResponse)
@@ -66,10 +67,10 @@ curl -X POST http://localhost:8000/api/v1/query \
 
 ```json
 {
-  "summary": "지난달 가장 많이 팔린 상품은 A입니다 (1,240건).",
-  "columns": ["product_name", "order_count"],
-  "rows": [["A", 1240], ["B", 980]],
-  "sql": "SELECT product_name, COUNT(*) AS order_count FROM orders WHERE order_date >= '2026-06-01' AND order_date < '2026-07-01' GROUP BY product_name ORDER BY order_count DESC LIMIT 10",
+  "summary": "요청하신 조회 결과입니다. 상위 항목부터 정리했어요.",
+  "columns": ["product_category_name", "order_count"],
+  "rows": [["cama_mesa_banho", 11115], ["beleza_saude", 9670], ["esporte_lazer", 8641]],
+  "sql": "SELECT p.product_category_name, COUNT(*) AS order_count FROM olist_order_items oi JOIN olist_products p ON oi.product_id = p.product_id GROUP BY p.product_category_name ORDER BY order_count DESC LIMIT 10",
   "difficulty": "medium",
   "model": "solar-mini",
   "error": ""
@@ -117,17 +118,17 @@ curl -N -X POST http://localhost:8000/api/v1/query/stream \
 노드 순서: `schema_link → route → generate → validate → execute → format`
 
 ```text
-data: {"event":"node","node":"schema_link","data":"{\"tables\":[\"orders\"],\"schema\":\"CREATE TABLE orders ...\"}"}
+data: {"event":"node","node":"schema_link","data":"{\"tables\":[\"olist_order_items\",\"olist_products\", ...],\"schema\":\"CREATE TABLE ...\"}"}
 
 data: {"event":"node","node":"route","data":"{\"difficulty\":\"medium\",\"model\":\"solar-mini\",\"safety\":{\"ok\":true,\"reason\":\"\"}}"}
 
-data: {"event":"node","node":"generate","data":"{\"sql\":\"SELECT product_name, COUNT(*) ...\",\"iteration\":1}"}
+data: {"event":"node","node":"generate","data":"{\"sql\":\"SELECT p.product_category_name, COUNT(*) ...\",\"iteration\":1}"}
 
 data: {"event":"node","node":"validate","data":"{\"validation\":{\"ok\":true,\"errors\":[]}}"}
 
-data: {"event":"node","node":"execute","data":"{\"result\":{\"columns\":[\"product_name\",\"order_count\"],\"rows\":[[\"A\",1240]],\"format\":\"table\",\"truncated\":false}}"}
+data: {"event":"node","node":"execute","data":"{\"result\":{\"columns\":[\"product_category_name\",\"order_count\"],\"rows\":[[\"cama_mesa_banho\",11115]],\"format\":\"table\",\"truncated\":false}}"}
 
-data: {"event":"done","data":"{\"summary\":\"지난달 가장 많이 팔린 상품은 A입니다 (1,240건).\",\"table\":{\"columns\":[\"product_name\",\"order_count\"],\"rows\":[[\"A\",1240]]},\"sql\":\"SELECT ...\",\"disclaimer\":\"\"}"}
+data: {"event":"done","data":"{\"summary\":\"요청하신 조회 결과입니다. ...\",\"table\":{\"columns\":[\"product_category_name\",\"order_count\"],\"rows\":[[\"cama_mesa_banho\",11115]]},\"sql\":\"SELECT ...\",\"disclaimer\":\"이 결과는 조회 시점 기준입니다.\"}"}
 ```
 
 ---
