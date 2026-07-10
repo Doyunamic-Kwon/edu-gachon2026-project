@@ -3,7 +3,7 @@
 응답은 SSE(Server-Sent Events)로 스트리밍되며, 이벤트는 다음 순서로 흐른다.
 
     status (쿼리 생성 중) -> status (안전성 확인 중) -> status (실행 중)
-        -> result (표 + 요약) -> sql (원문, 투명성 제공)
+        -> (결과 검증) -> result (표 + 요약) -> sql (원문, 투명성 제공)
         -> done
 
 실패 시 위 순서 어디서든 error 이벤트가 오고 스트림이 종료된다.
@@ -19,6 +19,7 @@ from app.db.database import run_readonly_query
 from app.schemas.query import ErrorCode, QueryRequest, SSEEvent
 from app.services.agent_client import ask_ai_agent
 from app.services.guardrail import GuardrailError, validate_sql
+from app.services.result_validator import ResultValidationError, validate_result
 from app.services.session_store import append_turn, get_history
 
 router = APIRouter()
@@ -68,6 +69,17 @@ async def _query_stream(req: QueryRequest) -> AsyncGenerator[str, None]:
             yield _sse(
                 SSEEvent.ERROR,
                 {"code": ErrorCode.NO_RESULT, "message": "조건에 맞는 결과가 없습니다."},
+            )
+            return
+
+        # 3-1) 실행된 결과 자체의 스키마/타입/행 수가 정상적인지 한 번 더 확인한다.
+        #      guardrail이 "SQL이 안전한가"를 봤다면, 여기는 "결과가 타당한가"를 본다.
+        try:
+            validate_result(rows)
+        except ResultValidationError as e:
+            yield _sse(
+                SSEEvent.ERROR,
+                {"code": ErrorCode.RESULT_VALIDATION_FAILED, "message": e.message},
             )
             return
 
