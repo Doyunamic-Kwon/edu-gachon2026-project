@@ -31,21 +31,42 @@ class Settings(BaseSettings):
     supabase_db_url: str = "postgresql://postgres:postgres@localhost:5432/postgres"
     db_schema: str = "public"  # 화이트리스트 대상 스키마
 
-    # ── 난이도별 solar 모델 라우팅 (벤치마크 근거, 표본 확대 후 확정) ──
+    # ── 난이도별 solar 모델 라우팅 ──
+    # route_eval n=300(few-shot, 우리 generator)로 확정한 비용인지 라우팅.
+    # 하·중은 mini 로 충분(81/78%), 상·최상은 pro2 정확도 우위(79/60%). pro3 제외
+    # (모든 난이도 pro2 이하, 동일 단가). 근거: docs/difficulty_criteria.md.
     model_easy: str = "solar-mini"
     model_medium: str = "solar-mini"
     model_hard: str = "solar-pro2"
     model_extra_hard: str = "solar-pro2"
+    # 런칭 안정화: 값 비었을 때만 위 난이도 라우팅 적용. 지금은 전부 pro2 고정
+    # (router 는 분류를 계속 하되 model 만 이 값으로 덮음). ""로 두면 검증된 라우팅 복귀.
+    route_force_model: str = "solar-pro2"
 
     # ── 실행 가드레일 ──
     sql_max_rows: int = 1000
     sql_exec_timeout_s: float = 5.0
     agent_max_retries: int = 2
 
+    # ── 스키마/값 링킹 튜닝 ──
+    # 상수 박지 말고 여기서. score 분포를 Langfuse 로 로깅해 재캘리브레이션,
+    # 회귀 측정은 tests/eval_linker.py (recall@k · 마진 분포).
+    link_table_min_k: int = 3        # recall 우선: 최소 이만큼은 확보
+    link_table_max_k: int = 8
+    link_elbow_gap: float = 0.03     # 인접 점수 gap 이 크면 컷(적응적 k)
+    link_enum_max_card: int = 10     # 유니크 <= 이 값이면 enum → 마진 없이 top-1
+    value_cat_limit: int = 60        # distinct <= 이 값이면 categorical 로 캐시
+    value_max_values: int = 300      # 임베딩 후보 상한
+    value_fuzzy_min: int = 85
+    value_emb_floor: float = 0.40    # 이보다 낮으면 no-match (정답 없음 방어)
+    value_emb_margin: float = 0.05   # free-text top1-top2; 미달이면 버리지 말고 ambiguous
+
     # ── LLM (LiteLLM / Upstage) ──
     upstage_api_key: str = ""
+    upstage_base_url: str = "https://api.upstage.ai/v1"
     llm_temperature: float = 0.0
     llm_max_tokens: int = 800
+    gen_decompose: bool = True  # hard/extra_hard 에 단계분해·CTE 가이드 (off=기본 프롬프트)
 
     # ── Langfuse (트레이싱·비용/품질 로깅) ──
     langfuse_public_key: str = ""
