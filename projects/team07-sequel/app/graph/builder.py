@@ -15,13 +15,14 @@ from app.core.settings import settings
 from app.graph.nodes.executor import execute
 from app.graph.nodes.formatter import format_answer
 from app.graph.nodes.generator import generate
+from app.graph.nodes.query_normalizer import normalize
 from app.graph.nodes.router import route
 from app.graph.nodes.schema_linker import schema_link
 from app.graph.nodes.validator import validate
 from app.graph.state import AgentState
 
 # SSE 에서 진행 상황을 흘려보낼 노드 이름들
-NODE_NAMES = ("schema_link", "route", "generate", "validate", "execute", "format")
+NODE_NAMES = ("normalize", "schema_link", "route", "generate", "validate", "execute", "format")
 
 
 def _after_route(state: AgentState) -> str:
@@ -41,6 +42,7 @@ def _after_validate(state: AgentState) -> str:
 def build_graph():
     """상태 그래프를 구성·컴파일해 반환한다."""
     g = StateGraph(AgentState)
+    g.add_node("normalize", normalize)
     g.add_node("schema_link", schema_link)
     g.add_node("route", route)
     g.add_node("generate", generate)
@@ -48,7 +50,8 @@ def build_graph():
     g.add_node("execute", execute)
     g.add_node("format", format_answer)
 
-    g.add_edge(START, "schema_link")
+    g.add_edge(START, "normalize")
+    g.add_edge("normalize", "schema_link")
     g.add_edge("schema_link", "route")
     g.add_conditional_edges("route", _after_route, {"generate": "generate", "format": "format"})
     g.add_edge("generate", "validate")
