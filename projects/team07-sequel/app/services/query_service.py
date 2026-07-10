@@ -25,7 +25,10 @@ class QueryService:
         입력: question(str)
         출력: QueryResponse
         """
-        state = await self._graph.ainvoke(initial_state(question))
+        try:
+            state = await self._graph.ainvoke(initial_state(question))
+        except Exception as exc:  # noqa: BLE001 — 외부(LLM/DB) 실패를 API 계약(error 필드)으로 변환
+            return QueryResponse(error=str(exc))
         answer = state.get("answer", {})
         table = answer.get("table", {})
         return QueryResponse(
@@ -44,17 +47,26 @@ class QueryService:
         입력: question(str)
         출력: StreamEvent 비동기 제너레이터
         """
-        async for event in self._graph.astream_events(initial_state(question), version="v2"):
-            if event.get("event") == "on_chain_end" and event.get("name") in NODE_NAMES:
-                yield StreamEvent(
-                    event="node",
-                    node=event["name"],
-                    data=json.dumps(event.get("data", {}).get("output", {}), ensure_ascii=False, default=str),
-                )
-        final = await self._graph.ainvoke(initial_state(question))
+        # 그래프를 한 번만 실행하고, format 노드 출력에서 최종 answer 를 캡처한다
+        # (재-invoke 하면 LLM/SQL 비용 2배 + 스트림과 done 답변 불일치 위험).
+        answer: dict = {}
+        try:
+            async for event in self._graph.astream_events(initial_state(question), version="v2"):
+                if event.get("event") == "on_chain_end" and event.get("name") in NODE_NAMES:
+                    output = event.get("data", {}).get("output", {}) or {}
+                    yield StreamEvent(
+                        event="node",
+                        node=event["name"],
+                        data=json.dumps(output, ensure_ascii=False, default=str),
+                    )
+                    if "answer" in output:  # format 노드가 쓴 최종 answer
+                        answer = output["answer"]
+        except Exception as exc:  # noqa: BLE001
+            yield StreamEvent(event="error", data=str(exc))
+            return
         yield StreamEvent(
             event="done",
-            data=json.dumps(final.get("answer", {}), ensure_ascii=False, default=str),
+            data=json.dumps(answer, ensure_ascii=False, default=str),
         )
 
 
