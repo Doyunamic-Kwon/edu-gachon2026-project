@@ -19,7 +19,7 @@ app = FastAPI(title="Sequel — Text-to-SQL Agent", version="0.1.0", lifespan=li
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=False,  # 쿠키/인증 미사용. 인증 도입 시 True + 명시 origin 유지(와일드카드와 병용 금지)
     allow_methods=["*"],
     allow_headers=["*"],
 )
