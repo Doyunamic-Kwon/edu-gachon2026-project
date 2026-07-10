@@ -35,4 +35,5 @@ class ErrorCode:
     VALIDATION_FAILED = "VALIDATION_FAILED"       # 안전하지 않은 쿼리로 판단되어 차단됨
     NO_RESULT = "NO_RESULT"                       # 조건에 맞는 결과 없음
     AMBIGUOUS_QUESTION = "AMBIGUOUS_QUESTION"      # 질문이 모호해서 SQL 생성 불가
+    RESULT_VALIDATION_FAILED = "RESULT_VALIDATION_FAILED"  # 실행 결과의 스키마/타입이 비정상
     INTERNAL_ERROR = "INTERNAL_ERROR"              # 그 외 서버 내부 오류
