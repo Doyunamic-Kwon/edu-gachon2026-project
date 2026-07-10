@@ -39,7 +39,8 @@ def _time_range(text: str) -> dict:
     if "작년" in text:
         return r(date(today.year - 1, 1, 1), date(today.year - 1, 12, 31))
     if m := re.search(r"최근\s*(\d+)\s*일", text):
-        return r(today - timedelta(days=int(m.group(1))), today)
+        days = min(int(m.group(1)), 3650)  # 상한 ~10년: OverflowError·비현실 범위 방어
+        return r(today - timedelta(days=days), today)
     if "어제" in text:
         y = today - timedelta(days=1)
         return r(y, y)
@@ -66,11 +67,14 @@ def normalize(state: AgentState) -> dict:
     normalized, keywords, ambiguous = question, [], False
     try:
         obj = json.loads(res.text)
-        normalized = obj.get("normalized_question") or question
-        keywords = obj.get("keywords") or []
-        ambiguous = bool(obj.get("ambiguous", False))
-    except (json.JSONDecodeError, AttributeError):
-        pass
+    except (json.JSONDecodeError, TypeError):
+        obj = None
+    if isinstance(obj, dict):  # LLM 이 계약을 어겨도(타입 위반) 안전 기본값 유지
+        nq = obj.get("normalized_question")
+        normalized = nq if isinstance(nq, str) and nq.strip() else question
+        kw = obj.get("keywords")
+        keywords = [k for k in kw if isinstance(k, str) and k.strip()] if isinstance(kw, list) else []
+        ambiguous = obj.get("ambiguous") is True  # bool("false")==True 회피: 엄격 비교
 
     return {
         "normalized_question": normalized,
