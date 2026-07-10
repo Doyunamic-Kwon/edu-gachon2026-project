@@ -8,7 +8,12 @@ DB 연결 자체도 text2sql_reader(읽기 전용) 계정이라 쓰기 자체는
 
 import re
 
-_SELECT_ONLY = re.compile(r"^\s*select\b", re.IGNORECASE)
+# SELECT뿐 아니라 WITH(CTE, Common Table Expression)로 시작하는 쿼리도 허용한다.
+# "카테고리별 매출" 같은 집계 쿼리는 agent가 WITH 절로 감싸서 만드는 경우가
+# 흔한데, WITH 자체는 읽기 전용 구문이고 그 안에 쓰기 키워드가 숨어있어도
+# 아래 _FORBIDDEN_KEYWORDS 검사가 그건 별도로 잡아준다. 그래서 시작 키워드만
+# SELECT로 제한하면 정상적인 CTE 쿼리까지 오탐으로 차단하게 된다 (2026-07-10 수정).
+_SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS = re.compile(
     r"\b(insert|update|delete|drop|alter|truncate|grant|revoke|create)\b",
     re.IGNORECASE,
@@ -29,7 +34,7 @@ def validate_sql(sql: str) -> str:
     stripped = sql.strip()
 
     if not _SELECT_ONLY.match(stripped):
-        raise GuardrailError("SELECT로 시작하는 조회 쿼리만 허용됩니다.")
+        raise GuardrailError("SELECT(또는 WITH로 시작하는 CTE) 조회 쿼리만 허용됩니다.")
 
     if _FORBIDDEN_KEYWORDS.search(stripped):
         raise GuardrailError("데이터를 변경하거나 스키마를 수정하는 쿼리는 허용되지 않습니다.")

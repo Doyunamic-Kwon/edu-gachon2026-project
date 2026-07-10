@@ -25,6 +25,28 @@ class TestSelectOnly:
         result = validate_sql("   \n  SELECT 1")
         assert "SELECT" in result.upper()
 
+    def test_with_cte_query_passes(self):
+        # 2026-07-10 실사용 중 발견된 버그: "카테고리별 매출" 같은 집계 질문에
+        # agent가 WITH(CTE)로 감싼 SQL을 만들면, 예전엔 "SELECT로 시작 안 함"으로
+        # 오탐 차단됐었다. WITH도 읽기 전용 구문이라 허용해야 한다.
+        sql = (
+            "WITH category_revenue AS ("
+            "SELECT p.product_category_name AS category, SUM(oi.price) AS revenue "
+            "FROM olist_order_items oi JOIN olist_products p ON oi.product_id = p.product_id "
+            "GROUP BY p.product_category_name"
+            ") SELECT * FROM category_revenue ORDER BY revenue DESC"
+        )
+        result = validate_sql(sql)
+        assert result.upper().startswith("WITH")
+        assert "LIMIT 200" in result.upper()
+
+    def test_with_clause_containing_write_keyword_is_still_rejected(self):
+        # WITH를 허용하더라도, 그 안에 쓰기 키워드가 숨어있으면 여전히 차단돼야 한다
+        # (_FORBIDDEN_KEYWORDS 검사가 별도로 잡아준다).
+        sql = "WITH x AS (INSERT INTO olist_orders VALUES (1) RETURNING *) SELECT * FROM x"
+        with pytest.raises(GuardrailError):
+            validate_sql(sql)
+
     @pytest.mark.parametrize(
         "sql",
         [
