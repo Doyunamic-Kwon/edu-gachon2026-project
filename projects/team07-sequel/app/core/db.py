@@ -1,25 +1,58 @@
-"""대상 데이터베이스 접근 — Supabase(PostgreSQL) 읽기 전용 엔진.
+"""대상 데이터베이스 접근 — 기본은 Supabase(PostgreSQL) 읽기전용,
+평가용으로 thread-local 타깃 스위칭(AI Hub sqlite)도 지원.
 
-executor(및 repositories)가 여기서 커넥션을 얻는다. 안전성은 DB 측
-read-only 계정(text2sql_reader)으로 1차 보장하고, 앱 측에서 SELECT-only 를 재확인한다.
+- 기본(타깃 미지정): Supabase read-only (default_transaction_read_only + statement_timeout)
+- set_target(sqlite_path): 그 스레드의 쿼리를 해당 sqlite 로 라우팅 (route_eval 실 linker용)
 
-지금은 스켈레톤.
-
-입력: settings.sqlalchemy_url (Supabase Session Pooler, psycopg3 드라이버)
-출력: SQLAlchemy Engine
-TODO(tool 단계): create_engine(settings.sqlalchemy_url, pool_pre_ping=True) 생성.
+repositories/tools 는 is_sqlite() 로 dialect 분기한다.
 """
 from __future__ import annotations
 
+import threading
+
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+
 from app.core.settings import settings
 
-_engine = None
+_ctx = threading.local()
+_engines: dict[str, Engine] = {}
+_lock = threading.Lock()
 
 
-def get_engine():
-    """읽기 전용 DB 엔진을 반환한다 (지연 생성·싱글턴).
+def set_target(sqlite_path: str | None) -> None:
+    """이 스레드의 대상 DB 를 지정(None=Supabase 기본)."""
+    _ctx.path = sqlite_path
 
-    TODO(tool 단계): SQLAlchemy create_engine(settings.sqlalchemy_url).
-    Supabase 는 반드시 Pooler 주소 사용(Direct 는 IPv6 전용).
-    """
-    raise NotImplementedError("tool 단계에서 구현 (Supabase read-only 엔진)")
+
+def current_db_key() -> str:
+    """캐시 키용 현재 DB 식별자."""
+    return getattr(_ctx, "path", None) or "supabase"
+
+
+def is_sqlite(engine: Engine) -> bool:
+    return engine.dialect.name == "sqlite"
+
+
+def _make(url: str, sqlite: bool) -> Engine:
+    if sqlite:
+        return create_engine(url)
+    timeout_ms = int(settings.sql_exec_timeout_s * 1000)
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        connect_args={
+            "connect_timeout": 10,
+            "options": f"-c statement_timeout={timeout_ms} -c default_transaction_read_only=on",
+        },
+    )
+
+
+def get_engine() -> Engine:
+    """현재 타깃(스레드별)에 맞는 엔진을 반환(경로별 싱글턴)."""
+    path = getattr(_ctx, "path", None)
+    url = f"sqlite:///{path}" if path else settings.sqlalchemy_url
+    with _lock:
+        if url not in _engines:
+            _engines[url] = _make(url, bool(path))
+    return _engines[url]
