@@ -27,7 +27,7 @@ VALUE_LABELS = [
 ]
 
 
-def eval_schema() -> None:
+def eval_schema() -> bool:
     print("== schema recall@k ==")
     hit = 0
     for q, gold in SCHEMA_LABELS.items():
@@ -36,9 +36,10 @@ def eval_schema() -> None:
         hit += ok
         print(f"  [{'O' if ok else 'X'}] {q}  (retrieved {len(tables)}개)  missing={sorted(gold - tables)}")
     print(f"  recall: {hit}/{len(SCHEMA_LABELS)}\n")
+    return hit == len(SCHEMA_LABELS)
 
 
-def eval_value() -> None:
+def eval_value() -> bool:
     print("== value accuracy ==")
     hit = 0
     for kw, table, gold in VALUE_LABELS:
@@ -51,8 +52,11 @@ def eval_value() -> None:
                 if h else f"not_found (unresolved={res.unresolved})")
         print(f"  [{'O' if ok else 'X'}] {kw} -> {gold} | got={val} | {info}")
     print(f"  accuracy: {hit}/{len(VALUE_LABELS)}")
+    return hit == len(VALUE_LABELS)
 
 
 if __name__ == "__main__":
-    eval_schema()
-    eval_value()
+    ok_schema = eval_schema()
+    ok_value = eval_value()
+    if not (ok_schema and ok_value):  # 회귀 감지: CI/자동화에서 실패로 종료
+        raise SystemExit(1)
