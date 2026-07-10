@@ -104,23 +104,27 @@ def retrieve_values(keywords: list[str], tables: list[str]) -> ValueRetrievalRes
         return ValueRetrievalResult()
     catmap = _categorical(tables)
 
-    exact_idx: dict[str, str] = {}
+    # 키(원문·소문자) → (컬럼, 실제 저장값). 소문자 매칭이어도 DB 원본 대소문자를 돌려줘야
+    # Postgres 대소문자 구분 비교에서 결과를 놓치지 않는다("canceled" 입력, 저장값 "Canceled").
+    exact_idx: dict[str, tuple[str, str]] = {}
     for key, vals in catmap.items():
         for v in vals:
-            exact_idx.setdefault(v, key)
-            exact_idx.setdefault(v.lower(), key)
+            exact_idx.setdefault(v, (key, v))
+            exact_idx.setdefault(v.lower(), (key, v))
 
     hints: list[ValueHint] = []
     unresolved: list[str] = []
     for kw in keywords:
         # 1) exact
-        if col := (exact_idx.get(kw) or exact_idx.get(kw.lower())):
-            hints.append(ValueHint(keyword=kw, column=col, value=kw, how="exact"))
+        if hit := (exact_idx.get(kw) or exact_idx.get(kw.lower())):
+            col, val = hit
+            hints.append(ValueHint(keyword=kw, column=col, value=val, how="exact"))
             continue
         # 2) synonym
         syn = SYNONYMS.get(kw)
-        if syn and (col := (exact_idx.get(syn) or exact_idx.get(syn.lower()))):
-            hints.append(ValueHint(keyword=kw, column=col, value=syn, how="synonym"))
+        if syn and (hit := (exact_idx.get(syn) or exact_idx.get(syn.lower()))):
+            col, val = hit
+            hints.append(ValueHint(keyword=kw, column=col, value=val, how="synonym"))
             continue
         # 구(clause)/과도하게 짧은 키워드는 fuzzy·embedding 매칭 대상에서 제외(오매칭 방지)
         if not _matchable(kw):
