@@ -1,8 +1,10 @@
 """sql_validator 도구 — sqlglot 로 SQL 을 검증한다 (실행 전 안전 게이트).
 
-입력: sql(str), schema(str) — schema 는 참고용, 화이트리스트는 카탈로그에서 직접 확인
+입력: sql(str), schema(str, 참고용), tables(list[str]|None) — 링크된 테이블 허용목록
 출력: ValidationResult(ok, errors)
-검사: 파싱 가능 · 단일 문장 · SELECT 만 · DML/DDL 금지 · 화이트리스트 밖 테이블 거부.
+검사: 파싱 가능 · 단일 문장 · SELECT 만 · DML/DDL 금지 · 허용목록 밖 테이블 거부.
+허용목록은 링크된 tables 우선(생성기가 본 스키마와 일치 → 미링크 테이블 참조 차단),
+없으면 카탈로그 전체로 폴백.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ _BANNED = (
 )
 
 
-def validate_sql(sql: str, schema: str = "") -> ValidationResult:
+def validate_sql(sql: str, schema: str = "", tables: list[str] | None = None) -> ValidationResult:
     errors: list[str] = []
     try:
         statements = [s for s in sqlglot.parse(sql, dialect="postgres") if s is not None]
@@ -29,7 +31,8 @@ def validate_sql(sql: str, schema: str = "") -> ValidationResult:
     if len(statements) != 1:
         errors.append("정확히 한 개의 SELECT 문만 허용됩니다.")
 
-    allowed = {t.lower() for t in schema_repository.list_tables()}
+    # 링크된 테이블을 허용목록으로(생성기가 본 스키마와 동일). 비면 카탈로그로 폴백.
+    allowed = {t.lower() for t in (tables or schema_repository.list_tables())}
     for st in statements:
         for banned in _BANNED:
             if st.find(banned) is not None:
