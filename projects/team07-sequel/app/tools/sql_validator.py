@@ -1,12 +1,43 @@
-"""sql_validator 도구 — sqlglot 로 SQL 을 검증한다.
+"""sql_validator 도구 — sqlglot 로 SQL 을 검증한다 (실행 전 안전 게이트).
 
-입력: sql(str), schema(str, 허용 테이블/컬럼)
-출력: {"ok": bool, "errors": list[str]}
-검사: 파싱 가능, SELECT 만, 금지 키워드/DDL·DML 차단, 화이트리스트 밖 테이블/컬럼 거부.
-TODO(tool 단계): sqlglot.parse_one(sql, dialect="postgres") 기반 검증 구현.
+입력: sql(str), schema(str) — schema 는 참고용, 화이트리스트는 카탈로그에서 직접 확인
+출력: ValidationResult(ok, errors)
+검사: 파싱 가능 · 단일 문장 · SELECT 만 · DML/DDL 금지 · 화이트리스트 밖 테이블 거부.
 """
 from __future__ import annotations
 
+import sqlglot
+from sqlglot import exp
 
-def validate_sql(sql: str, schema: str) -> dict:
-    raise NotImplementedError("tool 단계에서 구현")
+from app.repositories import schema_repository
+from app.tools.schemas import ValidationResult
+
+# 쓰기/DDL/명령 계열 — 하나라도 있으면 거부
+_BANNED = (
+    exp.Insert, exp.Update, exp.Delete, exp.Merge,
+    exp.Drop, exp.Create, exp.Alter, exp.TruncateTable, exp.Command,
+)
+
+
+def validate_sql(sql: str, schema: str = "") -> ValidationResult:
+    errors: list[str] = []
+    try:
+        statements = [s for s in sqlglot.parse(sql, dialect="postgres") if s is not None]
+    except Exception as e:  # noqa: BLE001
+        return ValidationResult(ok=False, errors=[f"SQL 파싱 실패: {e}"])
+
+    if len(statements) != 1:
+        errors.append("정확히 한 개의 SELECT 문만 허용됩니다.")
+
+    allowed = {t.lower() for t in schema_repository.list_tables()}
+    for st in statements:
+        for banned in _BANNED:
+            if st.find(banned) is not None:
+                errors.append(f"금지된 구문: {banned.__name__}")
+        if st.find(exp.Select) is None:
+            errors.append("SELECT 문만 허용됩니다.")
+        for tbl in st.find_all(exp.Table):
+            if tbl.name and tbl.name.lower() not in allowed:
+                errors.append(f"허용되지 않은 테이블: {tbl.name}")
+
+    return ValidationResult(ok=not errors, errors=sorted(set(errors)))
