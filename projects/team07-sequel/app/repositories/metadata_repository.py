@@ -36,7 +36,8 @@ def mschema(tables: list[str]) -> str:
             m = info.get(name)
             if m and isinstance(m, dict):
                 ex = ", ".join(v for v in m.get("ex", [])[:2] if v)
-                lines.append(f"({name}: {dtype}, {m['d']}" + (f", ex: {ex})" if ex else ")"))
+                desc = m.get("d", "")
+                lines.append(f"({name}: {dtype}, {desc}" + (f", ex: {ex})" if ex else ")"))
             else:
                 lines.append(f"({name}: {dtype})")
         lines.append("")
