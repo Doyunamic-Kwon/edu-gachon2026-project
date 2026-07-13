@@ -31,6 +31,15 @@ from bench import config
 
 _EX_SAMPLE_LEN = 60  # column_notes.json 예시값 절단 길이 (16자는 이메일 등 형식이 깨짐)
 
+
+def _truncate_sample(s: str, limit: int = _EX_SAMPLE_LEN) -> str:
+    """예시값을 단어 중간이 아닌 경계에서 자르고, 잘렸으면 말줄임표를 붙인다."""
+    s = str(s)
+    if len(s) <= limit:
+        return s
+    cut = s[:limit].rsplit(" ", 1)[0] or s[:limit]  # 공백 없으면(단어/이메일 등) 그냥 절단
+    return cut + "…"
+
 BIRD_ROOT = config.BENCH_DIR / "bird/minidev/MINIDEV"
 OUT_DIR = config.BENCH_DIR / "bird/metadata"
 LOG_DIR = OUT_DIR / "logs"
@@ -227,7 +236,7 @@ def build_supabase() -> None:
             o = json.loads(line)
             if not o.get("error") and o.get("description"):
                 samples = (o.get("profile") or {}).get("samples") or []
-                ex = [str(s)[:_EX_SAMPLE_LEN] for s in samples[:2] if s]
+                ex = [_truncate_sample(s) for s in samples[:2] if s]
                 notes.setdefault(o["table"], {})[o["column"]] = {"d": o["description"], "ex": ex}
     out = config.BENCH_DIR.parent / "app/static/column_notes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -262,7 +271,7 @@ def rebuild_supabase_notes() -> None:
             desc = res.text.strip()
         except Exception as e:  # noqa: BLE001
             print(f"  실패 {t}.{c}: {str(e)[:80]}"); return
-        ex = [s[:_EX_SAMPLE_LEN] for s in prof.get("samples", [])[:2] if s]
+        ex = [_truncate_sample(s) for s in prof.get("samples", [])[:2] if s]
         with lock:
             notes.setdefault(t, {})[c] = {"d": desc, "ex": ex}
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
