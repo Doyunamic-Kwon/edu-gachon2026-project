@@ -99,10 +99,14 @@ class QueryService:
             return []
         last = history[-1]
         ctx = f"질문: {last['q']}\nSQL: {last['sql']}\n요약: {last['result_summary']}"
-        res = complete("solar-mini", [
-            {"role": "system", "content": prompts.FOLLOWUP},
-            {"role": "user", "content": ctx},
-        ], temperature=0.3)
+        try:
+            res = complete("solar-mini", [
+                {"role": "system", "content": prompts.FOLLOWUP},
+                {"role": "user", "content": ctx},
+            ], temperature=0.3)
+        except Exception:  # noqa: BLE001 — run()/stream() 과 동일: 외부 호출 실패는 빈 결과로 흡수
+            logger.exception("suggest_followups 실패")
+            return []
         try:
             obj = json.loads(res.text)
         except (json.JSONDecodeError, TypeError):
