@@ -65,6 +65,15 @@ def test_max_sessions_updating_existing_does_not_evict() -> None:
     assert [h["q"] for h in store.get_history("s1")] == ["q0", "q1"]
 
 
+def test_max_sessions_rejects_non_positive() -> None:
+    for bad in (0, -1):
+        try:
+            SessionStore(max_sessions=bad)
+            raise AssertionError(f"max_sessions={bad} 가 거부되지 않음")
+        except ValueError:
+            pass
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
