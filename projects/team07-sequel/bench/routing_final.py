@@ -37,9 +37,9 @@ RESULTS = config.BENCH_DIR / "results_routing_final.jsonl"
 WORKERS = int(os.getenv("RF_WORKERS", "6"))
 REPAIRS = 2
 CELLS = [("solar-mini", 0), ("solar-mini", 3), ("solar-mini", 8), ("solar-pro2", 0),
-         ("solar-pro2", 8), ("solar-pro3", 3), ("solar-pro3", 8)]
+         ("solar-pro2", 8), ("solar-pro3", 0), ("solar-pro3", 3), ("solar-pro3", 8)]
 # pro2|k3 셀은 results_korean_final.jsonl 의 cond=n1 을 report 에서 합류
-# pro3|k0 은 제외: k0 열(few-shot 필요성)은 mini/pro2 로 충분, pro3 는 상급 경쟁자로만
+# pro3|k0 추가(3×3 그리드 완성): pro3 가 few-shot 없이도 pro2 를 넘는지 확인용
 
 _K3 = {r["id"]: r for r in json.loads((config.BENCH_DIR / "eval_set_fewshot_k3.json").read_text(encoding="utf-8"))}
 _K8 = {r["id"]: r for r in json.loads((config.BENCH_DIR / "eval_set_fewshot_k8.json").read_text(encoding="utf-8"))}
@@ -154,7 +154,7 @@ def _load_cells() -> dict:
 def cmd_report() -> None:
     sample_ids = {r["id"] for r in _sample()}
     latest = {k: o for k, o in _load_cells().items() if o["id"] in sample_ids}
-    cells = ["mini|k0", "mini|k3", "mini|k8", "pro2|k0", "pro2|k3", "pro2|k8", "pro3|k3", "pro3|k8"]
+    cells = ["mini|k0", "mini|k3", "mini|k8", "pro2|k0", "pro2|k3", "pro2|k8", "pro3|k0", "pro3|k3", "pro3|k8"]
     agg = defaultdict(lambda: {"n": 0, "ex": 0, "off": 0, "cost": 0.0})
     for o in latest.values():
         a = agg[(o["cell"], o["hardness"])]
