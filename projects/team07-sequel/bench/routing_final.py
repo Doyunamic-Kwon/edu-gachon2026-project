@@ -3,8 +3,8 @@
 확정 파이프라인 = normalize on + 확정(exact/synonym) 힌트만 주입 + 소형 bypass
 + 실행수리(2회) + gen_decompose off. korean_final n1최종과 동일 조건.
 
-셀: mini|k0 · mini|k3 · pro2|k0 · pro2|k8 · pro3|k3 · pro3|k8
-(pro2|k3 은 results_korean_final 의 n1 재사용). 답할 질문:
+셀: 3×3 그리드 (mini/pro2/pro3 × k0/k3/k8) — CELLS 는 8셀 실측 + pro2|k3 은
+results_korean_final 의 n1 재사용으로 합류. 답할 질문:
   ① 난이도별 최적 모델 (mini/pro2/pro3 — 신파이프라인에서 재검증)
   ② few-shot 을 하(easy)에도 줘야 하나 — 난이도별 k0→k3(→k8) 효과
   ③ 최상 KPI 70%: pro2|k8 / pro3|k8 로 달성?

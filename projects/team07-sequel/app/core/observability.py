@@ -52,7 +52,7 @@ def _short(v, n: int = 800) -> str:
 _PII = [
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "[EMAIL]"),
     (re.compile(r"\b01[016-9][-.\s]?\d{3,4}[-.\s]?\d{4}\b"), "[PHONE]"),
-    (re.compile(r"\b\d{6}[-\s]?[1-4]\d{6}\b"), "[RRN]"),           # 주민등록번호
+    (re.compile(r"\b\d{6}[-\s]?[1-8]\d{6}\b"), "[RRN]"),           # 주민/외국인등록번호(7번째 자리 1~8)
     (re.compile(r"\b\d{13,19}\b"), "[CARD]"),                      # 붙은 카드/계좌번호
     (re.compile(r"\b(?:\d{4}[-\s]){3}\d{4}\b"), "[CARD]"),         # 4-4-4-4
 ]
@@ -63,14 +63,20 @@ def mask_pii(data):
 
     litellm 의 langfuse 마스킹은 예외 시 원본을 그대로 로깅(fail-open)하므로,
     여기서 예외를 삼키고 삭제 표시를 돌려 **fail-closed**(유출 < 로그손실)를 강제한다.
-    문자열만 처리(숫자·구조는 그대로 통과 — 오탐/구조 훼손 방지).
+    문자열은 규칙 치환, dict/list 는 재귀(중첩 값 속 PII 도 가림), 그 외(숫자 등)는 그대로 통과.
     langfuse 는 mask(data=...), litellm 은 mask(data) 로 부른다 → 단일 시그니처로 둘 다 커버.
     """
     try:
-        if not isinstance(data, str):
+        if isinstance(data, str):
+            for pat, repl in _PII:
+                data = pat.sub(repl, data)
             return data
-        for pat, repl in _PII:
-            data = pat.sub(repl, data)
+        if isinstance(data, dict):
+            return {k: mask_pii(v) for k, v in data.items()}
+        if isinstance(data, list):
+            return [mask_pii(v) for v in data]
+        if isinstance(data, tuple):
+            return tuple(mask_pii(v) for v in data)
         return data
     except Exception:  # noqa: BLE001 — 못 가리면 원문 대신 삭제
         return "[MASK-ERROR]"
