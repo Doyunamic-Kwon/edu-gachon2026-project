@@ -7,6 +7,7 @@ api/routes, services, db 쪽에 있으니 여기서는 흐름만 확인하면 �
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.proxy import router as proxy_router
 from app.api.routes.query import router as query_router
 from app.core.config import settings
 
@@ -21,8 +22,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 실제 요청 처리 로직은 api/routes/query.py에 있다.
+# 레거시 게이트웨이(POST /api/query, 자체 guardrail+DB 재실행).
 app.include_router(query_router)
+# agent(app/) 의 /api/v1 기능(스트림·후속질문·비용/토큰 KPI) 패스스루 프록시.
+app.include_router(proxy_router)
 
 
 @app.get("/health")
