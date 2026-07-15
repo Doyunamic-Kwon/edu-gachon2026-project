@@ -7,11 +7,19 @@ KPI 같은 기능은 agent(app/)에만 있다. 그래서 이 세 경로를 agent
                                    단, "done" 이벤트만은 그냥 흘려보내지 않고 백엔드가
                                    가로채 guardrail 재검증 + 자체 DB 재실행 + 결과 재검증까지
                                    다시 거친 뒤(defense-in-depth), 통과한 결과만 done으로
-                                   내보낸다. 재검증 실패 시 재시도 없이 바로 error 이벤트로
-                                   마감한다(레거시 /api/query 와 동일한 "실패=즉시 종료" 정책 —
-                                   agent에게 재생성을 요청하는 재생성 피드백 루프는 아직
-                                   로컬 전용(`_wip_query_with_retry_loop.py.txt`)이라 여기
-                                   엮지 않는다).
+                                   내보낸다.
+
+                                   2026-07-15 업데이트: 재검증(guardrail/DB 재실행/결과검증)
+                                   실패 시, 사용자에게 바로 error를 보여주는 대신 실패 사유를
+                                   질문 문자열에 자연어로 덧붙여 agent를 최대 _MAX_RETRIES회
+                                   다시 호출한다(`_build_retry_question` 참고). agent API에는
+                                   전용 피드백 파라미터가 없으므로(question/session_id 두
+                                   필드뿐), 새 파라미터를 추가하지 않고 question 문자열만
+                                   바꿔서 재요청하는 방식이다 — 로컬 WIP 파일
+                                   (`_wip_query_with_retry_loop.py.txt`)에서 검증했던 것과
+                                   동일한 접근을 스트리밍 relay 구조에 맞게 옮겨온 것.
+                                   payload 파싱 실패·"결과 없음"처럼 재시도해도 나아질 여지가
+                                   없는 실패는 재시도하지 않고 바로 error로 종료한다.
     POST /api/v1/suggestions    → agent 로 전달, JSON 반환 (재검증 대상 아님 — 텍스트 제안일 뿐)
     GET  /api/v1/metrics        → agent 로 전달, JSON 반환 (재검증 대상 아님 — 집계 KPI일 뿐)
 """
@@ -38,9 +46,27 @@ _STREAM_TIMEOUT = httpx.Timeout(connect=10.0, write=30.0, read=None, pool=10.0)
 _JSON_TIMEOUT = httpx.Timeout(30.0)
 _GENERIC_ERROR = "잠시 후 다시 시도해 주세요."
 
+# 최초 시도 포함 총 (_MAX_RETRIES + 1)번까지 agent에게 SQL 생성을 재요청한다.
+# 너무 크게 잡으면 실패하는 질문에 대해 사용자가 오래 기다리게 되므로 작게 유지.
+_MAX_RETRIES = 2
+
 
 class SuggestionsRequest(BaseModel):
     session_id: str = Field(..., min_length=1, max_length=200)
+
+
+class _TerminalError(Exception):
+    """재시도해도 나아질 여지가 없는 실패 (payload 파싱 실패, 결과 없음 등)."""
+
+    def __init__(self, message: str):
+        self.message = message
+
+
+class _RetryableError(Exception):
+    """agent에게 사유를 알려주고 다시 시도해볼 가치가 있는 실패 (guardrail/DB 재실행/결과검증)."""
+
+    def __init__(self, message: str):
+        self.message = message
 
 
 def _sse_error(message: str) -> bytes:
@@ -49,40 +75,14 @@ def _sse_error(message: str) -> bytes:
     return f"data: {payload}\n\n".encode("utf-8")
 
 
-def _revalidate_done(data_str: str) -> bytes:
-    """agent 의 done 페이로드(JSON 문자열)를 백엔드가 재검증한 뒤 done/error 프레임으로 변환.
+def _sse_status(message: str) -> bytes:
+    """agent 원본과 동일한 프레임 형식으로 status 이벤트를 만든다(재시도 중임을 알림)."""
+    payload = json.dumps({"event": "status", "node": "", "data": message}, ensure_ascii=False)
+    return f"data: {payload}\n\n".encode("utf-8")
 
-    순서: guardrail(SQL 안전성) → 백엔드 자체 DB 재실행(read-only 계정) →
-    result_validator(결과 타당성). 어느 하나라도 실패하면 agent에게 되돌려보내지
-    않고(재생성 피드백 루프는 별도 기능, 아직 로컬 전용) 바로 error 이벤트로 끝낸다 —
-    query.py(레거시 /api/query)의 실패 처리 정책과 동일하다.
-    """
-    try:
-        answer = json.loads(data_str)
-    except (TypeError, ValueError):
-        logger.exception("agent done 페이로드 파싱 실패")
-        return _sse_error(_GENERIC_ERROR)
 
-    try:
-        safe_sql = validate_sql(answer.get("sql", ""))
-    except GuardrailError as e:
-        return _sse_error(e.message)
-
-    try:
-        columns, row_lists = run_readonly_query_table(safe_sql)
-    except Exception:  # noqa: BLE001 — DB 재실행 실패
-        logger.exception("defense-in-depth 재실행 실패")
-        return _sse_error("쿼리 실행 중 오류가 발생했습니다. SQL 문법이나 컬럼/테이블명을 확인해주세요.")
-
-    if not row_lists:
-        return _sse_error("조건에 맞는 결과가 없습니다.")
-
-    try:
-        validate_result([dict(zip(columns, row)) for row in row_lists])
-    except ResultValidationError as e:
-        return _sse_error(e.message)
-
-    verified = {**answer, "sql": safe_sql, "table": {"columns": columns, "rows": row_lists}}
+def _done_frame(verified: dict) -> bytes:
+    """재검증까지 통과한 최종 결과를 done 프레임으로 만든다."""
     payload = json.dumps(
         {"event": "done", "node": "", "data": json.dumps(verified, ensure_ascii=False, default=str)},
         ensure_ascii=False,
@@ -90,11 +90,67 @@ def _revalidate_done(data_str: str) -> bytes:
     return f"data: {payload}\n\n".encode("utf-8")
 
 
-def _process_frame(frame: str) -> bytes | None:
+def _build_retry_question(original_question: str, previous_failure: str | None) -> str:
+    """agent에게 보낼 질문 문자열을 만든다.
+
+    previous_failure가 없으면(최초 시도) 원본 질문 그대로 보낸다. 있으면(재시도)
+    실패 이유를 자연어로 덧붙여서 agent가 같은 실수를 반복하지 않도록 유도한다.
+    agent API(`ask_ai_agent`/`docs/api.md`)는 question·session_id 두 필드만
+    받고 전용 피드백 파라미터가 없으므로, 새 파라미터를 추가하는 대신 이렇게
+    question 문자열에 얹어 보내는 방식을 쓴다.
+    """
+    if previous_failure is None:
+        return original_question
+    return (
+        f"{original_question}\n\n"
+        f"(참고: 이전 시도에서 다음 문제가 발생했습니다 — {previous_failure} "
+        "이 문제를 피해서 SQL을 다시 만들어주세요.)"
+    )
+
+
+def _revalidate(data_str: str) -> dict:
+    """agent 의 done 페이로드(JSON 문자열)를 백엔드가 재검증한 뒤 통과한 결과를 돌려준다.
+
+    순서: guardrail(SQL 안전성) → 백엔드 자체 DB 재실행(read-only 계정) →
+    result_validator(결과 타당성). guardrail·DB 재실행·결과검증 실패는
+    _RetryableError로(호출부가 agent에게 재요청할 수 있도록), payload 파싱 실패나
+    "결과 없음"처럼 재시도해도 소용없는 경우는 _TerminalError로 구분해서 던진다.
+    """
+    try:
+        answer = json.loads(data_str)
+    except (TypeError, ValueError):
+        logger.exception("agent done 페이로드 파싱 실패")
+        raise _TerminalError(_GENERIC_ERROR)
+
+    try:
+        safe_sql = validate_sql(answer.get("sql", ""))
+    except GuardrailError as e:
+        raise _RetryableError(e.message)
+
+    try:
+        columns, row_lists = run_readonly_query_table(safe_sql)
+    except Exception:  # noqa: BLE001 — DB 재실행 실패
+        logger.exception("defense-in-depth 재실행 실패")
+        raise _RetryableError("쿼리 실행 중 오류가 발생했습니다. SQL 문법이나 컬럼/테이블명을 확인해주세요.")
+
+    if not row_lists:
+        raise _TerminalError("조건에 맞는 결과가 없습니다.")
+
+    try:
+        validate_result([dict(zip(columns, row)) for row in row_lists])
+    except ResultValidationError as e:
+        raise _RetryableError(e.message)
+
+    return {**answer, "sql": safe_sql, "table": {"columns": columns, "rows": row_lists}}
+
+
+def _handle_frame(frame: str):
     """agent 가 보낸 SSE 프레임 한 개(개행 2개로 구분된 단위)를 처리한다.
 
-    "data: <json>" 형식이 아니면 무시. event=="done"만 재검증을 거치고,
-    나머지(node/error, 즉 진행 상황·agent 자체 오류)는 가공 없이 그대로 relay한다.
+    "data: <json>" 형식이 아니면 None. event=="done"이 아니면 그대로 relay할
+    ("frame", bytes)를 돌려준다. event=="done"이면 재검증까지 수행해서
+    ("done", bytes) / ("terminal", bytes) / ("retry", 실패사유문자열) 중 하나를
+    돌려준다 — 셋 다 해당 attempt의 스트림을 끝내야 함을 뜻한다.
     """
     stripped = frame.strip()
     if not stripped.startswith("data:"):
@@ -103,38 +159,94 @@ def _process_frame(frame: str) -> bytes | None:
     try:
         outer = json.loads(raw)
     except (TypeError, ValueError):
-        return _sse_error(_GENERIC_ERROR)
+        return ("terminal", _sse_error(_GENERIC_ERROR))
 
-    if outer.get("event") == "done":
-        return _revalidate_done(outer.get("data", ""))
-    return (frame + "\n\n").encode("utf-8")
+    if outer.get("event") != "done":
+        return ("frame", (frame + "\n\n").encode("utf-8"))
+
+    try:
+        verified = _revalidate(outer.get("data", ""))
+    except _TerminalError as e:
+        return ("terminal", _sse_error(e.message))
+    except _RetryableError as e:
+        return ("retry", e.message)
+    return ("done", _done_frame(verified))
+
+
+async def _run_attempt(client: httpx.AsyncClient, question: str, session_id: str):
+    """agent 스트림을 한 번 열어서 relay하다가, done 프레임을 만나면 재검증까지 수행한다.
+
+    진행 상황 프레임은 ("frame", bytes)로 계속 내보내고, done에 도달하면
+    ("done"|"terminal", bytes) 또는 ("retry", 실패사유)를 마지막으로 하나 내보낸
+    뒤 이 attempt를 끝낸다(agent가 done 없이 스트림을 끝내면 아무 결과도 없이 끝남).
+    """
+    buffer = ""
+    async with client.stream(
+        "POST",
+        "/api/v1/query/stream",
+        json={"question": question, "session_id": session_id},
+    ) as resp:
+        resp.raise_for_status()
+        async for chunk in resp.aiter_text():
+            buffer += chunk
+            while "\n\n" in buffer:
+                frame, buffer = buffer.split("\n\n", 1)
+                result = _handle_frame(frame)
+                if result is None:
+                    continue
+                yield result
+                if result[0] in ("done", "terminal", "retry"):
+                    return
+    if buffer.strip():
+        result = _handle_frame(buffer)
+        if result is not None:
+            yield result
 
 
 @router.post("/api/v1/query/stream")
 async def query_stream(req: QueryRequest):
-    """agent 의 SSE 스트림을 이벤트 단위로 파싱해서 relay(done만 재검증). 연결 실패 시 error로 마감."""
+    """agent 의 SSE 스트림을 이벤트 단위로 파싱해서 relay(done만 재검증).
+
+    재검증에서 guardrail/DB 재실행/결과검증이 실패하면(_RetryableError), 사용자에게
+    바로 보여주지 않고 실패 사유를 질문에 자연어로 덧붙여 agent를 최대 _MAX_RETRIES회
+    다시 호출한다. 파싱 실패·결과 없음(_TerminalError)이나 agent 연결 자체 실패는
+    재시도 없이 바로 error로 마감한다.
+    """
 
     async def relay():
-        buffer = ""
+        previous_failure: str | None = None
         try:
             async with httpx.AsyncClient(base_url=settings.AI_AGENT_BASE_URL, timeout=_STREAM_TIMEOUT) as client:
-                async with client.stream(
-                    "POST",
-                    "/api/v1/query/stream",
-                    json={"question": req.question, "session_id": req.session_id},
-                ) as resp:
-                    resp.raise_for_status()
-                    async for chunk in resp.aiter_text():
-                        buffer += chunk
-                        while "\n\n" in buffer:
-                            frame, buffer = buffer.split("\n\n", 1)
-                            out = _process_frame(frame)
-                            if out is not None:
-                                yield out
-            if buffer.strip():  # agent 가 마지막 프레임을 개행 2개 없이 끝냈을 경우 대비
-                out = _process_frame(buffer)
-                if out is not None:
-                    yield out
+                for attempt in range(_MAX_RETRIES + 1):
+                    question = _build_retry_question(req.question, previous_failure)
+                    if attempt > 0:
+                        yield _sse_status(f"이전 시도가 실패해서 다시 생성하는 중… ({attempt}/{_MAX_RETRIES})")
+
+                    outcome = None
+                    async for kind, payload in _run_attempt(client, question, req.session_id):
+                        if kind == "frame":
+                            yield payload
+                        else:
+                            outcome = (kind, payload)
+
+                    if outcome is None:
+                        # agent가 done도 error도 없이 스트림을 끝낸 이례적 케이스
+                        yield _sse_error(_GENERIC_ERROR)
+                        return
+
+                    kind, payload = outcome
+                    if kind in ("done", "terminal"):
+                        yield payload
+                        return
+
+                    # kind == "retry" — 실패 사유를 다음 attempt의 질문에 실어 재시도
+                    previous_failure = payload
+                    if attempt == _MAX_RETRIES:
+                        yield _sse_error(
+                            f"{_MAX_RETRIES + 1}번 시도했지만 유효한 결과를 만들지 못했습니다. "
+                            f"마지막 실패 이유: {previous_failure}"
+                        )
+                        return
         except Exception:  # noqa: BLE001 — agent 도달 실패도 스트림을 error 로 정상 종료
             logger.exception("agent 스트림 relay 실패")
             yield _sse_error(_GENERIC_ERROR)
