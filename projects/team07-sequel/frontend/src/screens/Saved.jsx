@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getSaved, toggleSaved, relTime } from "../store.js";
+import { stripMarkdown } from "../components/Markdown.jsx";
 
 export default function Saved({ onAsk }) {
   const [items, setItems] = useState(getSaved);
@@ -46,7 +47,7 @@ export default function Saved({ onAsk }) {
                 </div>
                 {s.summary ? (
                   <p style={{ fontSize: 13, color: "var(--t3)", margin: 0, lineHeight: 1.5 }} className="ellip">
-                    {s.summary}
+                    {stripMarkdown(s.summary)}
                   </p>
                 ) : null}
               </div>

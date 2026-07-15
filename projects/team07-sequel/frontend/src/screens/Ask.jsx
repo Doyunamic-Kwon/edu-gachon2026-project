@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import SqlCard from "../components/SqlCard.jsx";
 import ResultTable from "../components/ResultTable.jsx";
 import ResultChart from "../components/ResultChart.jsx";
+import Markdown from "../components/Markdown.jsx";
 import { downloadCsv, fmtInt, fmtCost, fmtLatency, isSaved, toggleSaved } from "../store.js";
 import { fetchSchema } from "../api.js";
 
@@ -47,12 +48,10 @@ function AssistantBlock({ turn, onSetView, onToggleSave, saved }) {
         )}
 
         {turn.error && !turn.status ? (
-          <p className="summary" style={{ color: "var(--red)" }}>
-            {turn.error}
-          </p>
+          <Markdown text={turn.error} className="summary" style={{ color: "var(--red)" }} />
         ) : null}
 
-        {turn.summary ? <p className="summary">{turn.summary}</p> : null}
+        {turn.summary ? <Markdown text={turn.summary} className="summary" /> : null}
 
         {turn.sql ? <SqlCard sql={turn.sql} /> : null}
 
