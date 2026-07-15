@@ -5,11 +5,11 @@ team:
   folder_name: team07-sequel
   name: sequel
   members:
-    - name: 홍길동
-      role: Backend, AI
+    - name: 권도윤
+      role: Backend, AI agent
       github: github-id
-    - name: 김철수
-      role: Frontend
+    - name: 이후윤
+      role: Frontend, Backend, Infra
       github: github-id
 
 project:
