@@ -115,6 +115,12 @@ def _revalidate(data_str: str) -> dict:
         logger.exception("agent done 페이로드 파싱 실패")
         raise _TerminalError(_GENERIC_ERROR)
 
+    # 되묻기(값 모호)·안전성 거절·생성 실패처럼 agent 가 의도적으로 SQL 없이 보낸 답변은
+    # 재실행할 쿼리가 없다 → 빈 SQL 을 guardrail 위반으로 막지 말고 그대로 통과시킨다.
+    # (이게 없으면 되묻기 메시지가 guardrail 에러로 뒤덮여 사용자에게 도달하지 못함)
+    if not (answer.get("sql") or "").strip():
+        return answer
+
     try:
         safe_sql = validate_sql(answer.get("sql", ""))
     except GuardrailError as e:
@@ -122,9 +128,12 @@ def _revalidate(data_str: str) -> dict:
 
     try:
         columns, row_lists = run_readonly_query_table(safe_sql)
-    except Exception:  # noqa: BLE001 — DB 재실행 실패
+    except Exception as e:  # noqa: BLE001 — DB 재실행 실패
         logger.exception("defense-in-depth 재실행 실패")
-        raise _RetryableError("쿼리 실행 중 오류가 발생했습니다. SQL 문법이나 컬럼/테이블명을 확인해주세요.")
+        # 재시도 피드백에 실제 DB 에러 첫 줄을 실어 agent 가 무엇을 고칠지 알게 한다
+        # (예: syntax error at or near "UNION"). 이 문구는 재시도 질문·로그로만 가고 사용자엔 노출 안 됨.
+        detail = (str(e).splitlines() or ["알 수 없는 오류"])[0][:300]
+        raise _RetryableError(f"쿼리 실행 중 오류가 발생했습니다 — {detail}")
 
     if not row_lists:
         raise _TerminalError("조건에 맞는 결과가 없습니다.")

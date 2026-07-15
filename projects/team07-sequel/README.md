@@ -231,7 +231,7 @@ BIRD few-shot 예시를 평가셋(dev풀)에서 뽑으면 49.3%, 누수 없는 t
 ## 6. 데모 영상
 
 - 배포 URL: https://text2sql-frontend-bfkt3wk5mq-du.a.run.app
-- 데모 영상: 준비 중
+- 데모 영상: https://drive.google.com/file/d/1iIiIH2jIcs_ZBI33IpL84rxb3iuTFYPo/view
 
 ---
 
@@ -239,8 +239,8 @@ BIRD few-shot 예시를 평가셋(dev풀)에서 뽑으면 49.3%, 누수 없는 t
 
 | 이름 | 역할 | GitHub |
 |---|---|---|
-| 권도윤 | AI 에이전트(LangGraph 파이프라인·실험·벤치마크), 프론트엔드 재구성 | [@Doyunamic-Kwon](https://github.com/Doyunamic-Kwon) |
-| 이후윤 | 백엔드, 인프라(GCP·CI/CD), DB, 프론트엔드 | [@2yoon420](https://github.com/2yoon420) |
+| 권도윤 | PM, AI 에이전트(LangGraph 파이프라인·실험·벤치마크), 프론트엔드, 백엔드 | [@Doyunamic-Kwon](https://github.com/Doyunamic-Kwon) |
+| 이후윤 | 백엔드, 인프라(GCP·CI/CD), DB, 프론트엔드, Design | [@2yoon420](https://github.com/2yoon420) |
 
 ---
 
@@ -254,7 +254,7 @@ BIRD few-shot 예시를 평가셋(dev풀)에서 뽑으면 49.3%, 누수 없는 t
 - [스키마링커_정리.md](docs/스키마링커_정리.md) — 스키마 링킹·값 해소 상세
 - [api.md](docs/api.md) — 에이전트 API 계약
 - [Sequel 프로젝트 기획서.pdf](docs/Sequel%20프로젝트%20기획서.pdf)
-
+- [발표자료] https://docs.google.com/presentation/d/1AtqVNu1vaXqk1ga_bGW66v9H1DWxMG4ky4O_iHh02uo/edit?slide=id.g3f169a78542_1_130#slide=id.g3f169a78542_1_130
 **참고 논문·자료**
 
 - MapleRepair (arXiv 2501.09310) — 오류 피드백 재생성·selective 힌트 원칙
